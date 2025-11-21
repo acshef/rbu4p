@@ -1,0 +1,9 @@
+[project]
+name = "rbu4p"
+dynamic = ["version"]
+description = "Rudimentary Backup Utility for Portainer"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.32.5",
+]
