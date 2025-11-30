@@ -4,6 +4,7 @@ import logging
 import os
 import pathlib
 import shutil
+import sys
 import typing as t
 
 from .app import RBU4Portainer
@@ -19,6 +20,7 @@ class Config(argparse.Namespace):
     insecure: bool
     force: t.Union[bool, None]
     verbose: int
+    on_bad_endpoint: t.Literal["skip", "halt"]
 
     @classmethod
     def create_parser(cls) -> argparse.ArgumentParser:
@@ -100,6 +102,14 @@ class Config(argparse.Namespace):
             default=str2bool(os.getenv(CONF_FORCE), allow_none=True),
             help=f"Whether to overwrite the destination file. Defaults to the value of the {CONF_FORCE} environment variable. If unset, the default is to ask if in an interactive terminal, and to fail otherwise",
         )
+        parser.add_argument(
+            "--on-bad-endpoint",
+            "-e",
+            choices=["skip", "halt"],
+            type=lambda x: str(x or "").lower().strip(),
+            default=os.getenv(CONF_ON_BAD_ENDPOINT) or DEFAULT_ON_BAD_ENDPOINT,
+            help=f"When encountering a bad endpoint, choose whether to skip it or halt entirely. Defaults to the value of the {CONF_ON_BAD_ENDPOINT} environment variable",
+        )
 
         return parser
 
@@ -136,5 +146,6 @@ if __name__ == "__main__":
             force=args.force,
             archive=args.archive,
             verify=None if args.insecure is None else not args.insecure,
+            on_bad_endpoint=args.on_bad_endpoint,
         )
-        app()
+        sys.exit(app())

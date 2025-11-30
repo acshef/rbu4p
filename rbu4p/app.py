@@ -10,6 +10,7 @@ import typing as t
 
 import requests
 
+from .const import *
 from .endpoint import Endpoint
 from .stack import Stack
 from .util import groupby, is_interactive, str2bool
@@ -25,6 +26,7 @@ class RBU4Portainer:
     token: str
     verify: t.Optional[bool]
     force: t.Optional[bool]
+    on_bad_endpoint: t.Literal["skip", "halt"]
 
     log = logging.getLogger("rbu4p")
 
@@ -37,6 +39,7 @@ class RBU4Portainer:
         force: t.Optional[bool] = None,
         archive: t.Optional[str] = None,
         verify: t.Optional[bool] = None,
+        on_bad_endpoint: t.Literal["skip", "halt"] = DEFAULT_ON_BAD_ENDPOINT,
     ):
         if archive is not None:
             supported_formats = dict(shutil.get_archive_formats())
@@ -49,12 +52,34 @@ class RBU4Portainer:
         self.token = token
         self.verify = verify
         self.force = None if force is None else bool(force)
+        self.on_bad_endpoint = on_bad_endpoint
 
-    def __call__(self):
+    def __call__(self) -> t.Optional[int]:
         with tempfile.TemporaryDirectory() as tempdir:
             self.write_backup(tempdir)
-            endpoints = self.get_endpoints()
-            lookup = {x.id: x for x in endpoints}
+            _endpoints = self.get_endpoints()
+            endpoints_good = list[Endpoint]()
+            endpoints_bad = list[Endpoint]()
+            for x in sorted(_endpoints, key=lambda x: x.name):
+                if x.is_up:
+                    endpoints_good.append(x)
+                else:
+                    endpoints_bad.append(x)
+
+            if endpoints_bad:
+                if self.on_bad_endpoint == "skip":
+                    self.log.warning(
+                        "The following endpoints will be skipped because they're in a bad state: "
+                        + ", ".join(repr(x.name) for x in endpoints_bad)
+                    )
+                else:
+                    self.log.critical(
+                        "Stopping; the following endpoints are in a bad state: "
+                        + ", ".join(repr(x.name) for x in endpoints_bad)
+                    )
+                    return -1
+
+            lookup = {x.id: x for x in endpoints_good}
             stacks = self.get_stacks()
 
             for endpoint_id, _stacks in groupby(stacks, key=lambda x: x.endpoint_id):
@@ -66,7 +91,7 @@ class RBU4Portainer:
 
                 lookup[endpoint_id].stacks = _stacks
 
-            for endpoint in endpoints:
+            for endpoint in endpoints_good:
                 self.log.info(f"Backing up endpoint {endpoint.id}: {endpoint.name}")
                 endpoint_dir = pathlib.Path(tempdir, endpoint.name)
                 os.makedirs(endpoint_dir)
