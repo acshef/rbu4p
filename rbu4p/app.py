@@ -56,7 +56,9 @@ class RBU4Portainer:
 
     def __call__(self) -> t.Optional[int]:
         with tempfile.TemporaryDirectory() as tempdir:
-            self.write_backup(tempdir)
+            data_dir = pathlib.Path(tempdir, "data")
+            os.makedirs(data_dir)
+            self.write_backup(data_dir)
             _endpoints = self.get_endpoints()
             endpoints_good = list[Endpoint]()
             endpoints_bad = list[Endpoint]()
@@ -93,7 +95,7 @@ class RBU4Portainer:
 
             for endpoint in endpoints_good:
                 self.log.info(f"Backing up endpoint {endpoint.id}: {endpoint.name}")
-                endpoint_dir = pathlib.Path(tempdir, endpoint.name)
+                endpoint_dir = pathlib.Path(tempdir, "data", endpoint.name)
                 os.makedirs(endpoint_dir)
 
                 volumes = self.get_volumes(endpoint.id)
@@ -122,14 +124,16 @@ class RBU4Portainer:
             return self.make_output_archive(tempdir)
 
     def make_output_folder(self, tempdir: str):
+        self.log.info(f"Writing to {self.dest!s}")
         self.remove_or_die(self.dest)
-        shutil.copytree(tempdir, self.dest)
+        shutil.copytree(tempdir / "data", self.dest)
 
     def make_output_archive(self, tempdir: str):
-        temp_dest = pathlib.Path(tempdir, self.dest.stem)
-        archive = shutil.make_archive(temp_dest, self.archive, tempdir, ".")
-        archive_name = pathlib.Path(archive).name
-        dest = pathlib.Path(self.dest.parent, archive_name)
+        temp_dest = pathlib.Path(tempdir, "output")
+        archive_root = pathlib.Path(tempdir, "data")
+        archive = shutil.make_archive(temp_dest, self.archive, archive_root, ".")
+        dest = self.dest.with_suffix(pathlib.Path(archive).suffix)
+        self.log.info(f"Writing to {dest!s}")
         self.remove_or_die(dest)
         shutil.move(archive, dest)
 
@@ -189,7 +193,8 @@ class RBU4Portainer:
 
             return resp
 
-    def write_backup(self, tempdir: str, password: str = ""):
+    def write_backup(self, data_dir: str, password: str = ""):
+        self.log.debug("Making backup via Portainer...")
         resp = self.make_backup(password)
         if resp.headers.get("Content-Type") != "application/x-gzip":
             raise ValueError(f"Unknown backup MIME type {resp.headers.get('Content-Type')!r}")
@@ -202,6 +207,8 @@ class RBU4Portainer:
             if "filename" in params:
                 backup_name = params["filename"]
 
-        with open(pathlib.Path(tempdir, backup_name), "wb") as file:
+        backup_filepath = pathlib.Path(data_dir, backup_name)
+        with open(backup_filepath, "wb") as file:
             for data in resp.iter_content(None):
                 file.write(data)
+        self.log.debug(f"Made Portainer backup at {backup_filepath!s}")
